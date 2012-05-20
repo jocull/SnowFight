@@ -4,16 +4,15 @@
  */
 package com.jamesisgreat.snowfight;
 
-import java.util.HashMap;
-import java.util.Timer;
+import java.util.*;
 import java.util.logging.Level;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -21,7 +20,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class SnowFight extends JavaPlugin {
     
     public final int TIMER_INTERVAL = 1000;
-    public final int MINIMUM_PLAYERS = 1; //TODO: Should this should be 2 before release?
+    public final byte MINIMUM_PLAYERS = 1; //TODO: Should this should be 2 before release?
+    public final byte MAX_DISPLAY_SCORES = 5;
     public final String COMMAND = "sf";
     
     public String ChatPrefix;
@@ -38,6 +38,7 @@ public class SnowFight extends JavaPlugin {
     
     public World FightWorld;
     public HashMap<Player, FightRecord> FightPlayers = new HashMap<Player, FightRecord>();
+    public List<Block> DecayBlocks = new ArrayList<Block>();
     public Timer FightTimer = new Timer();
     
     private EventListener _EventListener;
@@ -64,13 +65,15 @@ public class SnowFight extends JavaPlugin {
         _EventListener = new EventListener(this);
         this.getServer().getPluginManager().registerEvents(_EventListener, this);
         
-        MessageAllPlayers(String.format("YEAH! %s! It's on! :)", PluginName));
+        //MessageAllPlayers(String.format("YEAH! %s! It's on! :)", PluginName));
+        MessageAllPlayers("Mod up!");
     }
     
     @Override
     public void onDisable(){
         FightTimer.cancel(); //Clear any/all timers
-        MessageAllPlayers(String.format("Booooo... %s is going offline :(", PluginName));
+        //MessageAllPlayers(String.format("Booooo... %s is going offline :(", PluginName));
+        MessageAllPlayers("Mod down...");
     }
     
     @Override
@@ -86,7 +89,7 @@ public class SnowFight extends JavaPlugin {
             MessagePlayer(player, String.format("You cannot use %s while in creative mode.", PluginName));
         }
         else if(args.length == 0){
-            ShowUsage(player);
+            ShowUsage(player, 1); //The other pages are at the bottom to avoid excess try/catching
         }
         else if(args[0].equalsIgnoreCase("start")){
             if(PluginState == PluginStates.Waiting){
@@ -106,6 +109,9 @@ public class SnowFight extends JavaPlugin {
             if(FightPlayers.containsKey(player)){
                 MessagePlayer(player, "You already joined! Calm down!");
             }
+            else if(!FightWorld.equals(player.getWorld())){
+                MessagePlayer(player, "You're not in the same world as the host! Go find them!");
+            }
             else if(PluginState == PluginStates.Joining){
                 FightPlayers.put(player, new FightRecord(player));
                 MessageAllPlayers(String.format("%s has joined the fight!", player.getDisplayName()));
@@ -117,8 +123,8 @@ public class SnowFight extends JavaPlugin {
                 MessagePlayer(player, "There is no game in progress.");
             }
         }
-        else if(args[0].equalsIgnoreCase("more")){
-            if(FightPlayers.containsKey(player) && PluginState == PluginState.Fighting){
+        else if(args[0].equalsIgnoreCase("r")){
+            if(FightPlayers.containsKey(player) && PluginState == PluginStates.Fighting){
                 FightRecord record = FightPlayers.get(player);
                 if(record.canRequestKit()){
                     SpawnReloadKit(player);
@@ -134,10 +140,27 @@ public class SnowFight extends JavaPlugin {
             }
         }
         else if(args[0].equalsIgnoreCase("players")){
-            MessagePlayer(player, "incomplete plugin :(");
+            if(PluginState.getValue() >= PluginStates.Fighting.getValue()){
+                StringBuilder sb = new StringBuilder("Players:\n");
+                int count = 0;
+                for(Player p : FightPlayers.keySet()){
+                    if(p == player)
+                        continue;
+                    sb.append(p.getDisplayName());
+                    sb.append(", ");
+                    count++;
+                }
+                if(count == 0){
+                    sb.append("No other players in game!  "); //Intentional whitespace for trimming commas
+                }
+                MessagePlayer(player, sb.substring(0, sb.length() - 2));
+            }
+            else{
+                MessagePlayer(player, "There is no game in progress.");
+            }
         }
         else if(args[0].equalsIgnoreCase("score")){
-            MessagePlayer(player, "incomplete plugin :(");
+            PrintScores(player);
         }
         else if(args[0].equalsIgnoreCase("quit")){
             if(PluginState.getValue() >= PluginStates.Joining.getValue()){
@@ -154,8 +177,14 @@ public class SnowFight extends JavaPlugin {
                 MessagePlayer(player, "There is no game in progress.");
             }
         }
+        else if(args[0].equalsIgnoreCase("decay")){
+            DecayBlocks(player);
+        }
         else if(args[0].equalsIgnoreCase("version")){
             MessagePlayer(player, this.PluginVersion);
+        }
+        else if(TryParseInt(args[0])){ //Help for page #x
+            ShowUsage(player, Integer.parseInt(args[0]));
         }
         else{
             MessagePlayer(player, String.format("Unknown command! Use `/%s` to get help.", COMMAND));
@@ -163,20 +192,40 @@ public class SnowFight extends JavaPlugin {
         return true;
     }
     
-    public void ShowUsage(Player player){
-        MessagePlayer(player, String.format("How to use %s:", this.PluginName));
-        MessagePlayer(player, String.format("/%s start - Start a snow fight", COMMAND));
-        MessagePlayer(player, String.format("/%s join - Join a snow fight during voting", COMMAND));
-        MessagePlayer(player, String.format("/%s more - Get more snow during a fight", COMMAND));
-        MessagePlayer(player, String.format("/%s players - Get a list of players during a fight", COMMAND));
-        MessagePlayer(player, String.format("/%s score - View scores during a fight", COMMAND));
-        MessagePlayer(player, String.format("/%s quit - Chicken out during a fight", COMMAND));
-        MessagePlayer(player, String.format("/%s version - Get the current version (it's %s)", COMMAND, this.PluginVersion));
+    public boolean TryParseInt(String value){
+        try {
+            Integer.parseInt(value);
+            return true;
+        }
+        catch(NumberFormatException ex) {
+            return false;
+        }
+    }
+    
+    public void ShowUsage(Player player, int page){
+        MessagePlayer(player, String.format("How to use %s (pg %d):", this.PluginName, page));
+        if(page == 1){
+            MessagePlayer(player, String.format("/%s 2 - More help", COMMAND));
+            MessagePlayer(player, String.format("/%s start - Start a snow fight", COMMAND));
+            MessagePlayer(player, String.format("/%s join - Join a snow fight during voting", COMMAND));
+            MessagePlayer(player, String.format("/%s r - Get more snow (reload) during a fight", COMMAND));
+            MessagePlayer(player, String.format("/%s quit - Chicken out during a fight", COMMAND));
+        }
+        else if(page == 2){
+            MessagePlayer(player, String.format("/%s players - Get a list of players during a fight", COMMAND));
+            MessagePlayer(player, String.format("/%s score - View scores during a fight", COMMAND));
+            MessagePlayer(player, String.format("/%s decay - Clean up snow after a fight", COMMAND));
+            MessagePlayer(player, String.format("/%s version - Get the current version (it's %s)", COMMAND, this.PluginVersion));
+        }
+        else{
+            MessagePlayer(player, String.format("No help available for page %d", COMMAND, page));
+        }
     }
     
     public void MessagePlayer(Player player, String message){
         //Private messages go light purple
         String output = this.ChatPrefix + ChatColor.LIGHT_PURPLE + message;
+        LogInfo(String.format("Message player [%s]: %s", player.getDisplayName(), output));
         player.sendMessage(output);
     }
     
@@ -198,14 +247,91 @@ public class SnowFight extends JavaPlugin {
         }
     }
 
-    public void PrintScores() {
+    public void PrintScores(Player privateMessagePlayer) {
+        if(FightPlayers.isEmpty()){
+            if(privateMessagePlayer != null){
+                MessagePlayer(privateMessagePlayer, "There are no scores to show!");
+            }
+            return;
+        }
+        
+        //Order players by score
+        List<FightRecord> fightRecords = new ArrayList<FightRecord>(FightPlayers.values());
+        Collections.sort(fightRecords, new Comparator<FightRecord>(){
+            @Override
+            public int compare(FightRecord s1, FightRecord s2) {
+                return s2.ScoreCount.intValue() - s1.ScoreCount.intValue();
+            }
+        });
+        
+        //Tell each player their score
         for (Player player : FightPlayers.keySet()){
-            if(FightPlayers.containsKey(player)){
+            if(FightPlayers.containsKey(player)
+                    && (privateMessagePlayer == null || privateMessagePlayer == player))
+            {
                 FightRecord record = FightPlayers.get(player);
                 MessagePlayer(player, String.format("Your score: %d", record.ScoreCount));
+                MessagePlayer(player, String.format("Times you were hit: %d", record.HitCount));
+                
+                int index = 0;
+                for(int i = 0; i < fightRecords.size(); i++){
+                    if(fightRecords.get(i).ThisPlayer.getEntityId() == player.getEntityId()){
+                        index = i + 1;
+                        break;
+                    }
+                }
+                MessagePlayer(player, String.format("Your place: %d / %d", index, fightRecords.size()));
             }
         }
-        MessageGamePlayers("TODO: PRINT EVERYONE'S SCORES!");
+        
+        //Check for ties
+        int maxScore = 0;
+        int maxScoreCount = 0;
+        boolean ties = false;
+        for(FightRecord record : fightRecords){
+            if(record.ScoreCount.intValue() > maxScore){
+                maxScore = record.ScoreCount.intValue();
+                maxScoreCount = 1;
+            }
+            else if(record.ScoreCount.intValue() == maxScore){
+                maxScoreCount++;
+            }
+        }
+        
+        //Print scores
+        String winner;
+        if(maxScoreCount > 1){
+            winner = String.format("There was a %d-way tie for best score!", maxScoreCount);
+        }
+        else{
+            winner = String.format("%s has won the match!", fightRecords.get(0).ThisPlayer.getDisplayName());
+        }
+        if(privateMessagePlayer != null){
+            MessagePlayer(privateMessagePlayer, winner);
+        }
+        else{
+            MessageGamePlayers(winner);
+        }
+        
+        int displayScoreCount = Math.min(MAX_DISPLAY_SCORES, fightRecords.size());
+        String topScores = String.format("Top %d scorers:", displayScoreCount);
+        if(privateMessagePlayer != null){
+            MessagePlayer(privateMessagePlayer, topScores);
+        }
+        else{
+            MessageGamePlayers(topScores);
+        }
+        
+        for(int i = 0; i < displayScoreCount; i++){
+            FightRecord record = fightRecords.get(i);
+            String scoreLine = String.format("%s - Score: %d | Times Hit: %d", record.ThisPlayer.getDisplayName(), record.ScoreCount, record.HitCount);
+            if(privateMessagePlayer != null){
+                MessagePlayer(privateMessagePlayer, scoreLine);
+            }
+            else{
+                MessageGamePlayers(scoreLine);
+            }
+        }
     }
     
     public void SpawnBuildKits(){
@@ -220,15 +346,8 @@ public class SnowFight extends JavaPlugin {
     
     public void SpawnFightKits(){
         for(Player player : FightPlayers.keySet()){
-            ItemStack blockStack = new ItemStack(Material.SNOW_BLOCK);
-            blockStack.setAmount(blockStack.getMaxStackSize() / 4);
-            SpawnItemsAtPlayer(player, blockStack);
-            
-            ItemStack ballStack = new ItemStack(Material.SNOW_BALL);
-            ballStack.setAmount(ballStack.getMaxStackSize());
-            SpawnItemsAtPlayer(player, ballStack);
-            
-            SpawnItemsAtPlayer(player, new ItemStack(Material.WOOD_SPADE));
+            SpawnReloadKit(player);
+            SpawnItemsAtPlayer(player, new ItemStack(Material.STONE_SPADE));
             
             FightPlayers.get(player).setLastKitRequest();
         }
@@ -246,22 +365,30 @@ public class SnowFight extends JavaPlugin {
         FightPlayers.get(player).setLastKitRequest();
     }
     
-    public void SpawnSnowKitAtPlayer(Player player, int snowBlockStacks, int snowballStacks){
-        ItemStack blockStack = new ItemStack(Material.SNOW_BLOCK);
-        ItemStack ballStack = new ItemStack(Material.SNOW_BALL);
-        
-        blockStack.setAmount(blockStack.getMaxStackSize());
-        ballStack.setAmount(ballStack.getMaxStackSize());
-        
-        for(int i = 0; i < snowballStacks; i++){
-            SpawnItemsAtPlayer(player, ballStack);
-        }
-        for(int i = 0; i < snowBlockStacks; i++){
-            SpawnItemsAtPlayer(player, blockStack);
-        }
-    }
-    
     public void SpawnItemsAtPlayer(Player player, ItemStack item){
         FightWorld.dropItemNaturally(player.getEyeLocation(), item);
+    }
+    
+    public void DecayBlocks(Player requestingPlayer){
+        if(PluginState.getValue() > PluginStates.Joining.getValue()){
+            if(requestingPlayer != null){
+                MessagePlayer(requestingPlayer, "You can't decay blocks in the middle of a fight!");
+                return;
+            }
+        }
+        else if(DecayBlocks.isEmpty()){
+            if(requestingPlayer != null){
+                MessagePlayer(requestingPlayer, "There are no blocks to decay!");
+            }
+            return;
+        }
+        
+        MessageAllPlayers("Snow blocks are decaying now! Hope you're not up high!");
+        for(Block block : DecayBlocks){
+            if(block.getType() == Material.SNOW_BLOCK){
+                block.setType(Material.AIR); //Set the block to be air.
+            }
+        }
+        DecayBlocks.clear(); //Empty the list
     }
 }

@@ -5,9 +5,6 @@
 package com.jamesisgreat.snowfight;
 
 import java.util.TimerTask;
-import org.bukkit.Material;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 
 public class FightTimerTask extends TimerTask {
 
@@ -80,16 +77,18 @@ public class FightTimerTask extends TimerTask {
                 _Plugin.SpawnFightKits();
             }
             else if(_Plugin.PluginState == PluginStates.Fighting){
-                _Plugin.PluginState = PluginStates.Waiting;
-                _SetCountdown();
-                _Plugin.MessageGamePlayers("Game over! Good job everyone!");
-                _Plugin.PrintScores();
+                _EndGame();
             }
         }
     }
     
     private void _EndGame()
     {
+        _Plugin.PluginState = PluginStates.Waiting;
+        _SetCountdown();
+        _Plugin.MessageGamePlayers("Game over! Good job everyone!");
+        _Plugin.PrintScores(null);
+        
         _Plugin.FightPlayers.clear(); //Empty the list for the next game.
         this.cancel();
     }
