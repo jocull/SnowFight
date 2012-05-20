@@ -1,0 +1,9 @@
+name: SnowFight
+main: com.jamesisgreat.snowfight.SnowFight
+version: 0.1
+
+commands:
+  snowfight:
+    description: used to control snow fights
+  sf:
+    description: used to control snow fights (shortcut)
