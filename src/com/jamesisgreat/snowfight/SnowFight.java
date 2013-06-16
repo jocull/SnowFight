@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.logging.Level;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -384,9 +385,42 @@ public class SnowFight extends JavaPlugin {
         }
         
         MessageAllPlayers("Snow blocks are decaying now! Hope you're not up high!");
+//        for (Player player : this.getServer().getOnlinePlayers()){
+//            Location l = player.getLocation();
+//            System.out.println(String.format("%s - X: %d Y: %d Z: %d",
+//                                                player.getName(),
+//                                                l.getBlockX(),
+//                                                l.getBlockY(),
+//                                                l.getBlockZ()));
+//        }
+        
         for(Block block : DecayBlocks){
             if(block.getType() == Material.SNOW_BLOCK){
-                block.setType(Material.AIR); //Set the block to be air.
+//                System.out.println(String.format("Snow Block - X: %d Y: %d Z: %d",
+//                                                block.getX(),
+//                                                block.getY(),
+//                                                block.getZ()));
+                
+                //Make sure no one is standing on this block
+                boolean standingPlayer = false;
+                for (Player player : this.getServer().getOnlinePlayers()){
+                    Location pl = player.getLocation();
+                    if(block.getX() >= (pl.getBlockX() - 2) // x/z = left/right
+                        && block.getX() <= (pl.getBlockX() + 2)
+                        && block.getZ() >= (pl.getBlockZ() - 2)
+                        && block.getZ() <= (pl.getBlockZ() + 2)
+                        && block.getY() >= (pl.getBlockY() - 1) // y = vertical
+                        && block.getY() < pl.getBlockY())
+                    {
+                        standingPlayer = true;
+                    }
+                }
+                
+                if(!standingPlayer){
+                    //block.breakNaturally(); //This makes more snowballs - e.g. clutter!
+                    block.breakNaturally(null); //This breaks but produces nothing
+                    //block.setType(Material.AIR); //Set the block to be air. (just disappears without animation)
+                }
             }
         }
         DecayBlocks.clear(); //Empty the list
