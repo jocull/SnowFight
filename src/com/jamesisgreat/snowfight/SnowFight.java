@@ -33,22 +33,20 @@ public class SnowFight extends JavaPlugin {
         {
             put(PluginStates.Joining, 30);
             put(PluginStates.Building, 30);
-            put(PluginStates.Fighting, 60); //TODO: Increase after debugging!
+            put(PluginStates.Fighting, 60);
         }
     };
     
     public World FightWorld;
-    public HashMap<Player, FightRecord> FightPlayers = new HashMap<Player, FightRecord>();
-    public List<Block> DecayBlocks = new ArrayList<Block>();
-    public Timer FightTimer = new Timer();
+    public final HashMap<Player, FightRecord> FightPlayers = new HashMap<Player, FightRecord>();
+    public final List<Block> DecayBlocks = new ArrayList<Block>();
+    public final List<Block> DecayPendingBlocks = new ArrayList<Block>();
+    public final Timer FightTimer = new Timer();
+    public final Timer DecayTimer = new Timer();
     
     private EventListener _EventListener;
     
     public PluginStates PluginState = PluginStates.Disabled;
-    
-    public static void main(String[] args) {
-        
-    }
     
     public void LogInfo(String msg){
         this.getLogger().log(Level.INFO, msg);
@@ -62,6 +60,9 @@ public class SnowFight extends JavaPlugin {
         PluginVersion = this.getDescription().getVersion();
         ChatPrefix = String.format("%s[%s]%s ", ChatColor.GOLD, PluginName, ChatColor.RESET);
         
+        //Setup plugin timers
+        DecayTimer.scheduleAtFixedRate(new DecayTimerTask(this), 0, TIMER_INTERVAL);
+        
         //Register event listeners
         _EventListener = new EventListener(this);
         this.getServer().getPluginManager().registerEvents(_EventListener, this);
@@ -72,7 +73,10 @@ public class SnowFight extends JavaPlugin {
     
     @Override
     public void onDisable(){
-        FightTimer.cancel(); //Clear any/all timers
+        //Clear any/all timers
+        FightTimer.cancel();
+        DecayTimer.cancel();
+        
         //MessageAllPlayers(String.format("Booooo... %s is going offline :(", PluginName));
         MessageAllPlayers("Mod down...");
     }
@@ -370,6 +374,24 @@ public class SnowFight extends JavaPlugin {
         FightWorld.dropItemNaturally(player.getEyeLocation(), item);
     }
     
+    public boolean PlayerStandingOnBlock(Block b){
+        final int xzThreshold = 2;
+        final int yThreshold = 2; //If you're jumping you're up one extra
+        for (Player player : this.getServer().getOnlinePlayers()){
+            Location pl = player.getLocation();
+            if(b.getX() >= (pl.getBlockX() - xzThreshold) // x/z = left/right
+                && b.getX() <= (pl.getBlockX() + xzThreshold)
+                && b.getZ() >= (pl.getBlockZ() - xzThreshold)
+                && b.getZ() <= (pl.getBlockZ() + xzThreshold)
+                && b.getY() >= (pl.getBlockY() - yThreshold) // y = vertical
+                && b.getY() < pl.getBlockY())
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     public void DecayBlocks(Player requestingPlayer){
         if(PluginState.getValue() > PluginStates.Joining.getValue()){
             if(requestingPlayer != null){
@@ -383,46 +405,14 @@ public class SnowFight extends JavaPlugin {
             }
             return;
         }
-        
-        MessageAllPlayers("Snow blocks are decaying now! Hope you're not up high!");
-//        for (Player player : this.getServer().getOnlinePlayers()){
-//            Location l = player.getLocation();
-//            System.out.println(String.format("%s - X: %d Y: %d Z: %d",
-//                                                player.getName(),
-//                                                l.getBlockX(),
-//                                                l.getBlockY(),
-//                                                l.getBlockZ()));
-//        }
-        
-        for(Block block : DecayBlocks){
-            if(block.getType() == Material.SNOW_BLOCK){
-//                System.out.println(String.format("Snow Block - X: %d Y: %d Z: %d",
-//                                                block.getX(),
-//                                                block.getY(),
-//                                                block.getZ()));
-                
-                //Make sure no one is standing on this block
-                boolean standingPlayer = false;
-                for (Player player : this.getServer().getOnlinePlayers()){
-                    Location pl = player.getLocation();
-                    if(block.getX() >= (pl.getBlockX() - 2) // x/z = left/right
-                        && block.getX() <= (pl.getBlockX() + 2)
-                        && block.getZ() >= (pl.getBlockZ() - 2)
-                        && block.getZ() <= (pl.getBlockZ() + 2)
-                        && block.getY() >= (pl.getBlockY() - 1) // y = vertical
-                        && block.getY() < pl.getBlockY())
-                    {
-                        standingPlayer = true;
-                    }
-                }
-                
-                if(!standingPlayer){
-                    //block.breakNaturally(); //This makes more snowballs - e.g. clutter!
-                    block.breakNaturally(null); //This breaks but produces nothing
-                    //block.setType(Material.AIR); //Set the block to be air. (just disappears without animation)
+        else{
+            MessageAllPlayers("Snow blocks are decaying now! Hope you're not up high!");
+            for(Block block : DecayBlocks){
+                synchronized(DecayPendingBlocks){
+                    DecayPendingBlocks.add(block);
                 }
             }
+            DecayBlocks.clear(); //Empty the list
         }
-        DecayBlocks.clear(); //Empty the list
     }
 }
